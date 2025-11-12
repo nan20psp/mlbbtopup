@@ -24,18 +24,26 @@ async def clear_history_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     args = context.args
-    
-    # (ကိုကို့ database.py (Response 146) က balance_to_set မပါတဲ့ version)
-    if len(args) != 1:
-        await update.message.reply_text(
+    balance_to_set = None # Default က Balance ကို မထိပါ
+
+    if len(args) == 0 or len(args) > 2:
+         await update.message.reply_text(
             "❌ Format မှားနေပါပြီ!\n\n"
             "**History ဖျက်ရန်:**\n"
-            "`/clearhistory <user_id>`\n",
+            "`/clearhistory <user_id>`\n\n"
+            "**History ဖျက်ပြီး Balance (0) သတ်မှတ်ရန်:**\n"
+            "`/clearhistory <user_id> 0`",
             parse_mode="Markdown"
         )
-        return
+         return
 
     target_user_id = args[0]
+    if len(args) == 2:
+        try:
+            balance_to_set = int(args[1])
+        except ValueError:
+            await update.message.reply_text("❌ Balance (ဂဏန်း) မှားနေပါသည်။ ဥပမာ: `0`")
+            return
 
     # User ရှိမရှိ အရင်စစ်
     user_data = db.get_user(target_user_id)
@@ -43,13 +51,19 @@ async def clear_history_command(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(f"❌ User ID `{target_user_id}` ကို မတွေ့ရှိပါ။")
         return
 
-    # DB function (Response 146) ကို ခေါ်ပါ
-    success = db.clear_user_history(target_user_id)
+    # DB function (Response 168) ကို ခေါ်ပါ
+    success = db.clear_user_history(target_user_id, balance_to_set) 
 
     if success:
-        await update.message.reply_text(
-            f"✅ **Success!**\n"
-            f"User `{target_user_id}` ၏ Order နှင့် Topup History အားလုံးကို ဖျက်လိုက်ပါပြီ။ (Balance မပြောင်းပါ)"
-        )
+        if balance_to_set is not None:
+            await update.message.reply_text(
+                f"✅ **Success!**\n"
+                f"User `{target_user_id}` ၏ History အားလုံး ဖျက်ပြီး Balance ကို `{balance_to_set}` MMK သတ်မှတ်လိုက်ပါပြီ။"
+            )
+        else:
+            await update.message.reply_text(
+                f"✅ **Success!**\n"
+                f"User `{target_user_id}` ၏ Order နှင့် Topup History အားလုံးကို ဖျက်လိုက်ပါပြီ။ (Balance မပြောင်းပါ)"
+            )
     else:
         await update.message.reply_text("❌ User ကို ရှာမတွေ့ပါ (သို့) Error ဖြစ်နေပါသည်။")

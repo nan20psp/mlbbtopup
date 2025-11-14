@@ -578,6 +578,108 @@ async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ Diamond amount မှားနေပါတယ်!\n\n"
             "💎 /price နှိပ်ပြီး ဈေးနှုန်းများ ပြန်ကြည့်ပါ။",
+async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    user_doc = db.get_user(user_id) # User info အရင်ယူထား
+
+    load_authorized_users()
+    if not is_user_authorized(user_id):
+        keyboard = [[InlineKeyboardButton("👑 Contact Owner", url=f"tg://user?id={ADMIN_ID}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "🚫 အသုံးပြုခွင့် မရှိပါ!\n\nOwner ထံ bot အသုံးပြုခွင့် တောင်းဆိုပါ။",
+            reply_markup=reply_markup
+        )
+        return
+
+    if not await check_maintenance_mode("orders"):
+        await send_maintenance_message(update, "orders")
+        return
+
+    if user_id in user_states and user_states[user_id] == "waiting_approval":
+        await update.message.reply_text(
+            "⏳ ***Screenshot ပို့ပြီးပါပြီ!***\n\n"
+            "❌ ***Admin က လက်ခံပြီးကြောင်း အတည်ပြုတဲ့အထိ commands တွေ အသုံးပြုလို့ မရပါ။***\n\n"
+            "⏰ ***Admin က approve လုပ်ပြီးမှ ပြန်လည် အသုံးပြုနိုင်ပါမယ်။***\n"
+            "📞 ***အရေးပေါ်ဆိုရင် admin ကို ဆက်သွယ်ပါ။***",
+            parse_mode="Markdown"
+        )
+        return
+
+    if await check_pending_topup(user_id):
+        await send_pending_topup_warning(update)
+        return
+
+    if user_id in pending_topups:
+        await update.message.reply_text(
+            "⏳ ***Topup လုပ်ငန်းစဉ် အရင်ပြီးဆုံးပါ!***\n\n"
+            "❌ ***လက်ရှိ topup လုပ်ငန်းစဉ်ကို မပြီးသေးပါ။***\n\n"
+            "***လုပ်ရမည့်အရာများ***:\n"
+            "***• Payment app ရွေးပြီး screenshot တင်ပါ***\n"
+            "***• သို့မဟုတ် /cancel နှိပ်ပြီး ပယ်ဖျက်ပါ***\n\n"
+            "💡 ***Topup ပြီးမှ order တင်နိုင်ပါမယ်။***",
+            parse_mode="Markdown"
+        )
+        return
+
+    args = context.args
+    if len(args) != 3:
+        await update.message.reply_text(
+            "❌ အမှားရှိပါတယ်!\n\n"
+            "***မှန်ကန်တဲ့ format***:\n"
+            "/mmb gameid serverid amount\n\n"
+            "***ဥပမာ***:\n"
+            "`/mmb 123456789 12345 wp1`\n"
+            "`/mmb 123456789 12345 86`",
+            parse_mode="Markdown"
+        )
+        return
+
+    game_id, server_id, amount = args
+
+    if not validate_game_id(game_id):
+        await update.message.reply_text(
+            "❌ ***Game ID မှားနေပါတယ်!*** (6-10 digits)\n\n"
+            "***ဥပမာ***: `123456789`",
+            parse_mode="Markdown"
+        )
+        return
+
+    if not validate_server_id(server_id):
+        await update.message.reply_text(
+            "❌ ***Server ID မှားနေပါတယ်!*** (3-5 digits)\n\n"
+            "***ဥပမာ***: `8662`, `12345`",
+            parse_mode="Markdown"
+        )
+        return
+
+    if is_banned_account(game_id):
+        await update.message.reply_text(
+            "🚫 ***Account Ban ဖြစ်နေပါတယ်!***\n\n"
+            f"🎮 Game ID: `{game_id}`\n"
+            "❌ ဒီ account မှာ diamond topup လုပ်လို့ မရပါ။\n"
+            "📞 ***ပြဿနာရှိရင် admin ကို ဆက်သွယ်ပါ။***",
+            parse_mode="Markdown"
+        )
+        admin_msg = (
+            f"🚫 ***Banned Account Topup ကြိုးစားမှု***\n\n"
+            f"👤 ***User:*** [{update.effective_user.first_name}](tg://user?id={user_id})\n"
+            f"🆔 ***User ID:*** `{user_id}`\n"
+            f"🎮 ***Game ID:*** `{game_id}`\n"
+            f"🌐 ***Server ID:*** `{server_id}`\n"
+            f"💎 ***Amount:*** {amount}"
+        )
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="Markdown")
+        except:
+            pass
+        return
+
+    price = get_price(amount)
+    if not price:
+        await update.message.reply_text(
+            "❌ Diamond amount မှားနေပါတယ်!\n\n"
+            "💎 /price နှိပ်ပြီး ဈေးနှုန်းများ ပြန်ကြည့်ပါ။",
             parse_mode="Markdown"
         )
         return
@@ -624,17 +726,19 @@ async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     user_name = f"{update.effective_user.first_name} {update.effective_user.last_name or ''}".strip()
+    
+    # --- (ပြင်ဆင်ပြီး) Admin Message (ပုံ အတိုင်း) ---
     admin_msg = (
         f"🔔 ***အော်ဒါအသစ်ရောက်ပါပြီ!***\n\n"
-        f"📝 ***Order ID:*** `{order_id}`\n"
-        f"👤 ***User Name:*** [{user_name}](tg://user?id={user_id})\n\n"
-        f"🆔 ***User ID:*** `{user_id}`\n"
-        f"🎮 ***Game ID:*** `{game_id}`\n"
-        f"🌐 ***Server ID:*** `{server_id}`\n"
-        f"💎 ***Amount:*** {amount}\n"
-        f"💰 ***Price:*** {price:,} MMK\n"
-        f"⏰ ***Time:*** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"📊 Status: ⏳ ***စောင့်ဆိုင်းနေသည်***"
+        f"📝 **Order ID:** `{order_id}`\n"
+        f"👤 **User Name:** {user_name}\n\n" # Admin DM မှာ Clickable မလို
+        f"🆔 **User ID:** `{user_id}`\n"
+        f"🎮 **Game ID:** `{game_id}`\n"
+        f"🌐 **Server ID:** `{server_id}`\n"
+        f"💎 **Amount:** {amount}\n"
+        f"💰 **Price:** {price:,} MMK\n"
+        f"⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"📊 **Status:** ⏳ `စောင့်ဆိုင်းနေသည်`"
     )
 
     load_admin_ids_global()
@@ -651,25 +755,31 @@ async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if await is_bot_admin_in_group(context.bot, ADMIN_GROUP_ID):
+            # --- (ပြင်ဆင်ပြီး) Group Message (ပုံ အတိုင်း) ---
             group_msg = (
-                f"🛒 ***အော်ဒါအသစ် ရောက်ပါပြီ!***\n\n"
-                f"📝 ***Order ID:*** `{order_id}`\n"
-                f"👤 ***User Name:*** [{user_name}](tg://user?id={user_id})\n"
-                f"🎮 ***Game ID:*** `{game_id}`\n"
-                f"🌐 ***Server ID:*** `{server_id}`\n"
-                f"💎 ***Amount:*** {amount}\n"
-                f"💰 ***Price:*** {price:,} MMK\n"
-                f"📊 ***Status:*** ⏳ စောင့်ဆိုင်းနေသည်\n\n"
+                f"🔔 ***အော်ဒါအသစ်ရောက်ပါပြီ!***\n\n"
+                f"📝 **Order ID:** `{order_id}`\n"
+                f"👤 **User Name:** [{user_name}](tg://user?id={user_id})\n" # Group မှာ Clickable ထည့်
+                f"🆔 **User ID:** `{user_id}`\n"
+                f"🎮 **Game ID:** `{game_id}`\n"
+                f"🌐 **Server ID:** `{server_id}`\n"
+                f"💎 **Amount:** {amount}\n"
+                f"💰 **Price:** {price:,} MMK\n"
+                f"⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"📊 **Status:** ⏳ `စောင့်ဆိုင်းနေသည်`\n\n"
                 f"#NewOrder"
             )
-            msg_obj = await context.bot.send_message(chat_id=ADMIN_GROUP_ID, text=group_msg, parse_mode="Markdown")
-            
-            db.add_message_to_delete_queue(msg_obj.message_id, msg_obj.chat_id, datetime.now().isoformat())
+            # --- (ပြီး) ---
+            await context.bot.send_message(
+                chat_id=ADMIN_GROUP_ID, 
+                text=group_msg, 
+                parse_mode="Markdown",
+                reply_markup=reply_markup # (အသစ်) Group မှာပါ Button ထည့်
+            )
     except Exception as e:
         print(f"Error sending to admin group in mmb_command: {e}")
         pass
-
-    # --- (Commission Logic ကို ဒီနေရာကနေ ဖြုတ်ထားပါသည်) ---
+    # --- (ပြီး) ---
 
     await update.message.reply_text(
         f"✅ ***အော်ဒါ အောင်မြင်ပါပြီ!***\n\n"
@@ -682,7 +792,6 @@ async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚠️ ***Admin က confirm လုပ်ပြီးမှ diamonds များ ရရှိပါမယ်။***",
         parse_mode="Markdown"
     )
-
 #__________________PUBG price FUNCTION__________________________________#
 
 async def pubg_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

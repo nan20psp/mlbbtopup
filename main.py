@@ -520,68 +520,78 @@ async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # --- (ပြင်ဆင်ပြီး) Multi-Item Logic ---
     args = context.args
-    if len(args) < 3: # အနည်းဆုံး ID, Server, Item 1 ခု ပါရမယ်
+    if len(args) != 3:
         await update.message.reply_text(
             "❌ အမှားရှိပါတယ်!\n\n"
-            "***Format***:\n"
-            "`/mmb gameid serverid item1 item2 ...`\n\n"
-            "***ဥပမာ (၁ ခုတည်း)***:\n"
-            "`/mmb 12345678 1234 wp1`\n\n"
-            "***ဥပမာ (၂ ခု နှင့်အထက် တွဲဝယ်ရန်)***:\n"
-            "`/mmb 12345678 1234 wp1 86`\n"
-            "`/mmb 12345678 1234 wp1 wp1 172`",
+            "***မှန်ကန်တဲ့ format***:\n"
+            "/mmb gameid serverid amount\n\n"
+            "***ဥပမာ***:\n"
+            "`/mmb 123456789 12345 wp1`\n"
+            "`/mmb 123456789 12345 86`",
             parse_mode="Markdown"
         )
         return
 
-    game_id = args[0]
-    server_id = args[1]
-    items_requested = args[2:] # နောက်ကပါသမျှ item တွေကို list အဖြစ်ယူမယ်
+    game_id, server_id, amount = args
 
     if not validate_game_id(game_id):
-        await update.message.reply_text("❌ ***Game ID မှားနေပါတယ်!*** (6-10 digits)")
+        await update.message.reply_text(
+            "❌ ***Game ID မှားနေပါတယ်!*** (6-10 digits)\n\n"
+            "***ဥပမာ***: `123456789`",
+            parse_mode="Markdown"
+        )
         return
 
     if not validate_server_id(server_id):
-        await update.message.reply_text("❌ ***Server ID မှားနေပါတယ်!*** (3-5 digits)")
+        await update.message.reply_text(
+            "❌ ***Server ID မှားနေပါတယ်!*** (3-5 digits)\n\n"
+            "***ဥပမာ***: `8662`, `12345`",
+            parse_mode="Markdown"
+        )
         return
 
     if is_banned_account(game_id):
-        await update.message.reply_text("🚫 ***Account Ban ဖြစ်နေပါတယ်!***")
+        await update.message.reply_text(
+            "🚫 ***Account Ban ဖြစ်နေပါတယ်!***\n\n"
+            f"🎮 Game ID: `{game_id}`\n"
+            "❌ ဒီ account မှာ diamond topup လုပ်လို့ မရပါ။\n"
+            "📞 ***ပြဿနာရှိရင် admin ကို ဆက်သွယ်ပါ။***",
+            parse_mode="Markdown"
+        )
+        admin_msg = (
+            f"🚫 ***Banned Account Topup ကြိုးစားမှု***\n\n"
+            f"👤 ***User:*** [{update.effective_user.first_name}](tg://user?id={user_id})\n"
+            f"🆔 ***User ID:*** `{user_id}`\n"
+            f"🎮 ***Game ID:*** `{game_id}`\n"
+            f"🌐 ***Server ID:*** `{server_id}`\n"
+            f"💎 ***Amount:*** {amount}"
+        )
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode="Markdown")
+        except:
+            pass
         return
 
-    # --- ဈေးနှုန်း တွက်ချက်ခြင်း (Loop) ---
-    total_price = 0
-    valid_items_list = []
+    price = get_price(amount)
+    if not price:
+        await update.message.reply_text(
+            "❌ Diamond amount မှားနေပါတယ်!\n\n"
+            "💎 /price နှိပ်ပြီး ဈေးနှုန်းများ ပြန်ကြည့်ပါ။",
+            parse_mode="Markdown"
+        )
+        return
 
-    for item in items_requested:
-        item_price = get_price(item)
-        if not item_price:
-            await update.message.reply_text(
-                f"❌ Item မှားနေပါတယ်: `{item}`\n\n"
-                "💎 /price နှိပ်ပြီး ဈေးနှုန်းများ ပြန်ကြည့်ပါ။",
-                parse_mode="Markdown"
-            )
-            return
-        total_price += item_price
-        valid_items_list.append(item)
+    user_balance = user_doc.get("balance", 0) # db.get_balance() အစား ပြောင်းသုံး
 
-    # DB မှာ သိမ်းဖို့ Item တွေကို ပေါင်းရေး (Example: "wp1 + 86")
-    amount_str = " + ".join(valid_items_list)
-
-    user_balance = user_doc.get("balance", 0)
-
-    if user_balance < total_price:
+    if user_balance < price:
         keyboard = [[InlineKeyboardButton("💳 ငွေဖြည့်မယ်", callback_data="topup_button")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             f"❌ ***လက်ကျန်ငွေ မလုံလောက်ပါ!***\n\n"
-            f"💎 ***Items***: `{amount_str}`\n"
-            f"💰 ***ကျသင့်ငွေ***: {total_price:,} MMK\n"
-            f"💳 ***လက်ကျန်***: {user_balance:,} MMK\n"
-            f"❗ ***လိုငွေ***: {total_price - user_balance:,} MMK\n\n"
+            f"💰 ***လိုအပ်တဲ့ငွေ***: {price:,} MMK\n"
+            f"💳 ***သင့်လက်ကျန်***: {user_balance:,} MMK\n"
+            f"❗ ***လိုအပ်သေးတာ***: {price - user_balance:,} MMK\n\n"
             "***ငွေဖြည့်ရန်*** `/topup amount` ***သုံးပါ။***",
             parse_mode="Markdown",
             reply_markup=reply_markup
@@ -593,17 +603,17 @@ async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "order_id": order_id,
         "game_id": game_id,
         "server_id": server_id,
-        "amount": amount_str, # "wp1 + 86" ပုံစံဖြင့် သိမ်းမည်
-        "price": total_price,
+        "amount": amount,
+        "price": price,
         "status": "pending",
         "timestamp": datetime.now().isoformat(),
         "user_id": user_id,
         "chat_id": update.effective_chat.id
     }
 
-    db.update_balance(user_id, -total_price)
+    db.update_balance(user_id, -price)
     db.add_order(user_id, order)
-    new_balance = user_balance - total_price
+    new_balance = user_balance - price # db.get_balance() အစား ပြောင်းသုံး
 
     keyboard = [
         [
@@ -615,16 +625,16 @@ async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_name = f"{update.effective_user.first_name} {update.effective_user.last_name or ''}".strip()
     
-    # --- Admin Message ---
+    # --- (ပြင်ဆင်ပြီး) Admin Message (ပုံ အတိုင်း) ---
     admin_msg = (
-        f"🔔 ***အော်ဒါအသစ်ရောက်ပါပြီ!*** (Multi-Item)\n\n"
+        f"🔔 ***အော်ဒါအသစ်ရောက်ပါပြီ!***\n\n"
         f"📝 **Order ID:** `{order_id}`\n"
-        f"👤 **User Name:** {user_name}\n\n"
+        f"👤 **User Name:** {user_name}\n\n" # Admin DM မှာ Clickable မလို
         f"🆔 **User ID:** `{user_id}`\n"
         f"🎮 **Game ID:** `{game_id}`\n"
         f"🌐 **Server ID:** `{server_id}`\n"
-        f"💎 **Items:** `{amount_str}`\n"
-        f"💰 **Total Price:** {total_price:,} MMK\n"
+        f"💎 **Amount:** {amount}\n"
+        f"💰 **Price:** {price:,} MMK\n"
         f"⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"📊 **Status:** ⏳ `စောင့်ဆိုင်းနေသည်`"
     )
@@ -643,36 +653,38 @@ async def mmb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if await is_bot_admin_in_group(context.bot, ADMIN_GROUP_ID):
-            # --- Group Message ---
+            # --- (ပြင်ဆင်ပြီး) Group Message (ပုံ အတိုင်း) ---
             group_msg = (
                 f"🔔 ***အော်ဒါအသစ်ရောက်ပါပြီ!***\n\n"
                 f"📝 **Order ID:** `{order_id}`\n"
-                f"👤 **User Name:** [{user_name}](tg://user?id={user_id})\n"
+                f"👤 **User Name:** [{user_name}](tg://user?id={user_id})\n" # Group မှာ Clickable ထည့်
                 f"🆔 **User ID:** `{user_id}`\n"
                 f"🎮 **Game ID:** `{game_id}`\n"
                 f"🌐 **Server ID:** `{server_id}`\n"
-                f"💎 **Items:** `{amount_str}`\n"
-                f"💰 **Price:** {total_price:,} MMK\n"
+                f"💎 **Amount:** {amount}\n"
+                f"💰 **Price:** {price:,} MMK\n"
                 f"⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"📊 **Status:** ⏳ `စောင့်ဆိုင်းနေသည်`\n\n"
                 f"#NewOrder"
             )
+            # --- (ပြီး) ---
             await context.bot.send_message(
                 chat_id=ADMIN_GROUP_ID, 
                 text=group_msg, 
                 parse_mode="Markdown",
-                reply_markup=reply_markup 
+                reply_markup=reply_markup # (အသစ်) Group မှာပါ Button ထည့်
             )
     except Exception as e:
-        print(f"Error sending to admin group: {e}")
+        print(f"Error sending to admin group in mmb_command: {e}")
         pass
+    # --- (ပြီး) ---
 
     await update.message.reply_text(
         f"✅ ***အော်ဒါ အောင်မြင်ပါပြီ!***\n\n"
         f"📝 ***Order ID:*** `{order_id}`\n"
         f"🎮 ***Game ID:*** `{game_id} ({server_id})`\n"
-        f"💎 ***Items:*** `{amount_str}`\n"
-        f"💰 ***ကုန်ကျစရိတ်:*** {total_price:,} MMK\n"
+        f"💎 ***Diamond:*** {amount}\n"
+        f"💰 ***ကုန်ကျစရိတ်:*** {price:,} MMK\n"
         f"💳 ***လက်ကျန်ငွေ:*** {new_balance:,} MMK\n"
         f"📊 Status: ⏳ ***စောင့်ဆိုင်းနေသည်***\n\n"
         "⚠️ ***Admin က confirm လုပ်ပြီးမှ diamonds များ ရရှိပါမယ်။***",
@@ -1401,6 +1413,70 @@ async def deduct_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💳 ***User လက်ကျန်ငွေ***: `{new_balance:,} MMK`",
         parse_mode="Markdown"
     )
+    
+async def addrefund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    
+    # 1. Admin ဖြစ်မှ သုံးခွင့်ပြုမည်
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ သင်သည် Admin မဟုတ်ပါ!")
+        return
+
+    # 2. Format စစ်ဆေးခြင်း
+    args = context.args
+    if len(args) != 2:
+        await update.message.reply_text(
+            "❌ Format မှားနေပါသည်!\n\n"
+            "✅ ***အသုံးပြုပုံ***: `/addrefund <user_id> <amount>`\n"
+            "📌 ***ဥပမာ***: `/addrefund 123456789 5000`",
+            parse_mode="Markdown"
+        )
+        return
+
+    target_user_id = args[0]
+    
+    # 3. Amount မှန်မမှန် စစ်ဆေးခြင်း
+    try:
+        amount = int(args[1])
+        if amount <= 0:
+            await update.message.reply_text("❌ ပမာဏသည် 0 ထက် များရပါမည်။")
+            return
+    except ValueError:
+        await update.message.reply_text("❌ ပမာဏကို ဂဏန်းဖြင့်သာ ရိုက်ထည့်ပါ။")
+        return
+
+    # 4. User ရှိမရှိ Database တွင် စစ်ဆေးခြင်း
+    user_data = db.get_user(target_user_id)
+    if not user_data:
+        await update.message.reply_text(f"❌ User ID `{target_user_id}` ကို ရှာမတွေ့ပါ။", parse_mode="Markdown")
+        return
+
+    # 5. Balance ထည့်သွင်းခြင်း (Database Update)
+    db.update_balance(target_user_id, amount)
+    new_balance = db.get_balance(target_user_id)
+
+    # 6. Admin ကို အောင်မြင်ကြောင်း ပြန်ပြောခြင်း
+    await update.message.reply_text(
+        f"✅ **Refund/Balance ဖြည့်သွင်းမှု အောင်မြင်ပါသည်!**\n\n"
+        f"👤 User ID: `{target_user_id}`\n"
+        f"💰 ဖြည့်သွင်းငွေ: `{amount:,} MMK`\n"
+        f"💳 လက်ကျန်ငွေသစ်: `{new_balance:,} MMK`",
+        parse_mode="Markdown"
+    )
+
+    # 7. User ဆီကို Message လှမ်းပို့ခြင်း
+    try:
+        await context.bot.send_message(
+            chat_id=int(target_user_id),
+            text=f"🎁 **Balance ဖြည့်သွင်းခြင်း (Refund/Bonus)**\n\n"
+                 f"Admin မှ သင့်အကောင့်သို့ `{amount:,} MMK` ထည့်သွင်းပေးလိုက်ပါသည်။\n\n"
+                 f"💳 **လက်ရှိလက်ကျန်**: `{new_balance:,} MMK`",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Error notifying user {target_user_id}: {e}")
+        await update.message.reply_text("⚠️ User ထံသို့ Message ပို့မရပါ (Bot ကို block ထားခြင်း ဖြစ်နိုင်သည်)။ သို့သော် Balance ဖြည့်ပြီးပါပြီ။")
+
 
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -4276,6 +4352,7 @@ def main():
     # Admin commands
     application.add_handler(CommandHandler("approve", approve_command))
     application.add_handler(CommandHandler("deduct", deduct_command))
+    application.add_handler(CommandHandler("addrefund", addrefund_command))
     application.add_handler(CommandHandler("done", done_command))
     application.add_handler(CommandHandler("reply", reply_command))
     application.add_handler(CommandHandler("checkuser", check_user_command))
